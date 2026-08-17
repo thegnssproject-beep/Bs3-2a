@@ -24,7 +24,6 @@ void SettingsWindow::setupUI()
 
     mainLayout->addWidget(tabWidget);
 
-    // Action Controls & Logging Output
     btnStart = new QPushButton("Start Processing SDR");
     btnStart->setFixedHeight(35);
     btnStart->setStyleSheet("font-weight: bold; font-size: 13px; background-color: #2b579a; color: white; border-radius: 4px;");
@@ -104,9 +103,7 @@ QWidget* SettingsWindow::createAcquisitionTab()
     QFormLayout* layout = new QFormLayout(tab);
 
     checkSkipAcq = new QCheckBox("Skip Acquisition");
-
-    // Default to searching the active BDS-3 constellation PRNs
-    editSatList = new QLineEdit("1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 32 33 34 35 36 37 38 39 40");
+    editSatList = new QLineEdit("19 20");
 
     spinSearchBand = new QDoubleSpinBox();
     spinSearchBand->setRange(0, 50000);
@@ -218,9 +215,20 @@ void SettingsWindow::onStartClicked()
         plotter->setAttribute(Qt::WA_DeleteOnClose);
 
         plotter->plotAcquisitionResults(results.acqResults);
-        if (!results.trackResults.empty()) {
+
+        // Find the first active tracked satellite channel (PRN > 0)
+        bool channelPlotted = false;
+        for (const auto& ch : results.trackResults) {
+            if (ch.PRN > 0 && !ch.I_P.empty()) {
+                plotter->plotTrackingResults(ch);
+                channelPlotted = true;
+                break;
+            }
+        }
+        if (!channelPlotted && !results.trackResults.empty()) {
             plotter->plotTrackingResults(results.trackResults[0]);
         }
+
         plotter->plotNavigationResults(results.navSolutions);
 
         plotter->show();

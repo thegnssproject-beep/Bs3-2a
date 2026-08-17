@@ -70,7 +70,7 @@ void SDRPlotWindow::plotAcquisitionResults(const AcqResults& acq)
 
         acqPlot->xAxis->setLabel("PRN number (no bar - SV is not in the acquisition list)");
         acqPlot->yAxis->setLabel("Acquisition Metric");
-        acqPlot->xAxis->setRange(0, 25);
+        acqPlot->xAxis->setRange(0, 22);
         acqPlot->yAxis->setRange(0, 1.5);
         acqPlot->legend->setVisible(true);
         acqPlot->replot();
@@ -83,8 +83,11 @@ void SDRPlotWindow::plotTrackingResults(const ChannelTrackResult& trackRes)
 #if __has_include("qcustomplot.h")
     trackingPlot->clearGraphs();
 
-    QVector<double> timeMs(trackRes.I_P.size()), IP(trackRes.I_P.size()), QP(trackRes.Q_P.size());
-    for (size_t i = 0; i < trackRes.I_P.size(); ++i) {
+    if (trackRes.I_P.empty()) return;
+
+    size_t plotLen = std::min<size_t>(trackRes.I_P.size(), 2000); // Display initial 2000 ms to inspect bit transitions cleanly
+    QVector<double> timeMs(plotLen), IP(plotLen), QP(plotLen);
+    for (size_t i = 0; i < plotLen; ++i) {
         timeMs[i] = static_cast<double>(i);
         IP[i] = trackRes.I_P[i];
         QP[i] = trackRes.Q_P[i];
@@ -92,22 +95,21 @@ void SDRPlotWindow::plotTrackingResults(const ChannelTrackResult& trackRes)
 
     trackingPlot->addGraph();
     trackingPlot->graph(0)->setData(timeMs, IP);
-    trackingPlot->graph(0)->setPen(QPen(Qt::blue));
-    trackingPlot->graph(0)->setName("In-Phase Prompt (I_P)");
+    trackingPlot->graph(0)->setPen(QPen(Qt::blue, 1.2));
+    trackingPlot->graph(0)->setName(QString("In-Phase Prompt (I_P) PRN %1").arg(trackRes.PRN));
 
     trackingPlot->addGraph();
     trackingPlot->graph(1)->setData(timeMs, QP);
-    trackingPlot->graph(1)->setPen(QPen(Qt::red));
-    trackingPlot->graph(1)->setName("Quadrature Prompt (Q_P)");
+    trackingPlot->graph(1)->setPen(QPen(Qt::red, 1.0));
+    trackingPlot->graph(1)->setName(QString("Quadrature Prompt (Q_P) PRN %1").arg(trackRes.PRN));
 
     trackingPlot->xAxis->setLabel("Time (ms)");
     trackingPlot->yAxis->setLabel("Correlator Output Amplitude");
     trackingPlot->legend->setVisible(true);
-
     trackingPlot->rescaleAxes();
     trackingPlot->replot();
 
-    // Carrier-to-Noise Ratio (C/N0) Plot
+    // C/N0 Plot across all epochs
     if (!trackRes.CNo.empty()) {
         cnoPlot->clearGraphs();
         QVector<double> cnoX(trackRes.CNo.size()), cnoY(trackRes.CNo.size());
@@ -118,21 +120,15 @@ void SDRPlotWindow::plotTrackingResults(const ChannelTrackResult& trackRes)
 
         cnoPlot->addGraph();
         cnoPlot->graph(0)->setData(cnoX, cnoY);
-        cnoPlot->graph(0)->setPen(QPen(Qt::darkGreen, 2));
-        cnoPlot->xAxis->setLabel("Epoch / Interval");
+        cnoPlot->graph(0)->setPen(QPen(QColor(0, 140, 0), 1.5));
+        cnoPlot->xAxis->setLabel("Epoch / Interval (ms)");
         cnoPlot->yAxis->setLabel("Carrier-to-Noise Ratio (dB-Hz)");
-
-        if (cnoPlot->plotLayout()->rowCount() == 1) {
-            cnoPlot->plotLayout()->insertRow(0);
-            cnoPlot->plotLayout()->addElement(0, 0, new QCPTextElement(cnoPlot, "Tracking C/N0 Estimation", QFont("sans", 10, QFont::Bold)));
-        }
-
         cnoPlot->rescaleAxes();
+        cnoPlot->yAxis->setRange(25.0, 50.0);
         cnoPlot->replot();
     }
 #endif
 }
-
 void SDRPlotWindow::plotNavigationResults(const NavSolutions& nav)
 {
 #if __has_include("qcustomplot.h")
