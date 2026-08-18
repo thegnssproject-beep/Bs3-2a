@@ -37,7 +37,7 @@ void SDRPlotWindow::plotAcquisitionResults(const AcqResults& acq)
     acqPlot->clearPlottables();
 
     QVector<double> prns, acquiredMetrics, notAcquiredMetrics;
-    const double threshold = 1.1;
+    const double threshold = 1.5; // Standard acquisition threshold matching MATLAB
 
     for (size_t prn = 1; prn < acq.peakMetric.size(); ++prn) {
         if (acq.peakMetric[prn] > 0.0) {
@@ -54,6 +54,7 @@ void SDRPlotWindow::plotAcquisitionResults(const AcqResults& acq)
     }
 
     if (!prns.isEmpty()) {
+        // Not Acquired Bars (Purple / Blue)
         QCPBars* barNotAcq = new QCPBars(acqPlot->xAxis, acqPlot->yAxis);
         barNotAcq->setData(prns, notAcquiredMetrics);
         barNotAcq->setWidth(0.7);
@@ -61,6 +62,7 @@ void SDRPlotWindow::plotAcquisitionResults(const AcqResults& acq)
         barNotAcq->setPen(QPen(Qt::black));
         barNotAcq->setName("Not acquired signals");
 
+        // Acquired Bars (Green)
         QCPBars* barAcq = new QCPBars(acqPlot->xAxis, acqPlot->yAxis);
         barAcq->setData(prns, acquiredMetrics);
         barAcq->setWidth(0.7);
@@ -70,8 +72,8 @@ void SDRPlotWindow::plotAcquisitionResults(const AcqResults& acq)
 
         acqPlot->xAxis->setLabel("PRN number (no bar - SV is not in the acquisition list)");
         acqPlot->yAxis->setLabel("Acquisition Metric");
-        acqPlot->xAxis->setRange(0, 22);
-        acqPlot->yAxis->setRange(0, 1.5);
+        acqPlot->xAxis->setRange(0, 21.5);
+        acqPlot->yAxis->setRange(0, 1.4);
         acqPlot->legend->setVisible(true);
         acqPlot->replot();
     }
