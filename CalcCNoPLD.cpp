@@ -6,11 +6,11 @@ CNoPLDResult CalcCNoPLD::compute(const ChannelTrackResult& trackResults, const S
     double T = settings.intTime;
     int interval = settings.CNoInterval;
 
-    if (loopCnt < interval) {
+    if (loopCnt < interval - 1) {
         return res;
     }
 
-    int startIdx = loopCnt - interval;
+    int startIdx = loopCnt - interval + 1;
 
     // Helper: Mean calculation
     auto calcMean = [](const std::vector<double>& v) {
@@ -69,6 +69,8 @@ CNoPLDResult CalcCNoPLD::compute(const ChannelTrackResult& trackResults, const S
     double PilotCNo = 0.0;
 
     if (settings.pilotTRKflag) {
+        // MATLAB Calc_CNo_PLD.m swaps the pilot channels for use in I/Q:
+        // Q_P = trackResults.Pilot_I_P, I_P = trackResults.Pilot_Q_P.
         std::vector<double> Pilot_Q_P(trackResults.Pilot_I_P.begin() + startIdx, trackResults.Pilot_I_P.begin() + loopCnt);
         std::vector<double> Pilot_I_P(trackResults.Pilot_Q_P.begin() + startIdx, trackResults.Pilot_Q_P.begin() + loopCnt);
 

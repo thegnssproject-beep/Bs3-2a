@@ -76,6 +76,9 @@
     <ClInclude Include="Ephemeris.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="CommonBS2.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp">
@@ -126,6 +129,18 @@
     <ClCompile Include="DataProbeDialog.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="CommonBS2.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="PostProcessor.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="ProbeDataWindowcpp.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="IQScatterPlotWidget.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <QtMoc Include="SettingsWindow.h">
@@ -138,6 +153,12 @@
       <Filter>Header Files</Filter>
     </QtMoc>
     <QtMoc Include="DataProbeDialog.h">
+      <Filter>Header Files</Filter>
+    </QtMoc>
+    <QtMoc Include="ProbeDataWindow.h">
+      <Filter>Header Files</Filter>
+    </QtMoc>
+    <QtMoc Include="IQScatterPlotWidget.h">
       <Filter>Header Files</Filter>
     </QtMoc>
   </ItemGroup>

@@ -5,6 +5,8 @@
 #include <fstream>
 #include <iostream>
 #include <cmath>
+#include <string>
+#include <functional>
 #include "Settings.h"
 #include "Acquisition.h"
 #include "PreRun.h"
@@ -17,8 +19,34 @@ struct SDRPipelineResults {
     NavSolutions navSolutions;
 };
 
+// Lightweight, copyable snapshot of the pipeline at each stage boundary.
+// Emitted from a worker thread so the GUI thread can render plots without
+// blocking the compute pipeline.
+struct PipelineStage {
+    int stage = 0;                              // 1 = acquisition, 2 = tracking, 3 = navigation
+    AcqResults acqResults;
+    std::vector<int> trackedPrns;
+    std::vector<ChannelTrackResult> trackResults;
+    NavSolutions navSolutions;
+};
+
 class PostProcessor {
 public:
+    using Logger = std::function<void(const std::string&)>;
+    using StageCallback = std::function<void(const PipelineStage&)>;
+
+    static bool runPipeline(const Settings& settings,
+        SDRPipelineResults& results,
+        Logger log = nullptr);
+
+    // Thread-safe pipeline entry point: performs the compute stages without
+    // touching any QWidget. Reports progress via `log` and calls `onStage` at
+    // each stage boundary so a GUI thread can render plots incrementally.
+    static bool runPipeline(const Settings& settings,
+        SDRPipelineResults& results,
+        Logger log,
+        StageCallback onStage);
+
     static bool runPipeline(const Settings& s, SDRPipelineResults& outResults) {
         std::cout << "[PostProcessor] Starting processing pipeline...\n";
 

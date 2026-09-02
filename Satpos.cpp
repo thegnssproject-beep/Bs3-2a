@@ -39,16 +39,27 @@ void Satpos::computePositionsAndVelocities(
     for (size_t satNr = 0; satNr < numOfSatellites; ++satNr) {
         int prn = prnList[satNr];
 
-        if (prn <= 0 || static_cast<size_t>(prn) >= eph.size()) {
+        if (prn <= 0) {
             continue;
         }
 
-        const Ephemeris& satEph = eph[prn];
+        // Locate the ephemeris for this PRN. The eph vector may be indexed by
+        // channel (not by PRN number), so scan for a matching PRN instead of
+        // assuming eph[prn] is valid.
+        long ephIdx = -1;
+        for (size_t e = 0; e < eph.size(); ++e) {
+            if (eph[e].PRN == prn) { ephIdx = static_cast<long>(e); break; }
+        }
+        if (ephIdx < 0) {
+            continue;
+        }
+
+        const Ephemeris& satEph = eph[static_cast<size_t>(ephIdx)];
 
         // 1. Satellite Clock Correction
         double dt = CheckT::check(transmitTime[satNr] - satEph.t_oc);
 
-        satClkCorr[satNr] = (satEph.a_2 * dt + satEph.a_1) * dt + satEph.a_0;
+        satClkCorr[satNr] = (satEph.a_2 * dt + satEph.a_1) * dt + satEph.a_0 - satEph.T_GDB1Cp;
         double time = transmitTime[satNr] - satClkCorr[satNr];
 
         // 2. Ephemeris Reference Time Difference
@@ -111,7 +122,7 @@ void Satpos::computePositionsAndVelocities(
         satPositions[2][satNr] = zk;
 
         // Relativistic Clock Correction
-        double dtr = F * satEph.e * std::sqrt(A) * std::sin(E);
+        double dtr = F * satEph.e * std::sqrt(A_0) * std::sin(E);
         satClkCorr[satNr] += dtr;
 
         // 3. Optional Satellite Velocity Computation
@@ -131,7 +142,7 @@ void Satpos::computePositionsAndVelocities(
         satVelocities[1][satNr] = xk * dOmega + (dyk1 * std::cos(i) - zk * di) * std::cos(Omega) + dxk1 * std::sin(Omega);
         satVelocities[2][satNr] = dyk1 * std::sin(i) + yk1 * di * std::cos(i);
 
-        double dtrRat = F * satEph.e * std::sqrt(A) * std::cos(E) * dE;
+        double dtrRat = F * satEph.e * std::sqrt(A_0) * std::cos(E) * dE;
         satClkDrift[satNr] = 2.0 * satEph.a_2 * dt + satEph.a_1 + dtrRat;
     }
 }

@@ -1,6 +1,11 @@
+#ifndef _USE_MATH_DEFINES
 #define _USE_MATH_DEFINES
-#include <cmath>
+#endif
+
 #include "EphemerisDecoder.h"
+#include <cmath>
+#include <algorithm>
+#include <set>
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -20,14 +25,114 @@ long long EphemerisDecoder::bin2dec(const std::string& bits)
 long long EphemerisDecoder::twosComp2dec(const std::string& bits)
 {
     if (bits.empty()) return 0;
-
     long long value = bin2dec(bits);
     size_t length = bits.length();
-
     if (bits[0] == '1') {
         value -= (1LL << length);
     }
     return value;
+}
+
+bool EphemerisDecoder::checkCRC24Q(const std::string& bitStr288)
+{
+    if (bitStr288.length() < 288) return false;
+
+    constexpr uint32_t POLY = 0x1864CFB;
+    uint32_t crc = 0x000000;
+
+    for (size_t i = 0; i < 288; ++i) {
+        uint32_t bit = (bitStr288[i] == '1') ? 1 : 0;
+        crc = (crc << 1) | bit;
+        if (crc & 0x1000000) {
+            crc ^= POLY;
+        }
+    }
+    return (crc & 0xFFFFFF) == 0;
+}
+
+// B-CNAV2 is broadcast at a symbol rate of 200 sps, i.e. each data symbol spans
+// 5 ms (5 integrate-and-dump samples at 1 kHz). The tracker produces one I_P
+// per ms, so we must first recover the 5-ms symbol boundaries (bit sync) and
+// then majority-vote each 5-sample group into one data symbol. Without this,
+// every frame search misses the preamble and the navigation message can never
+// be decoded (fixes stay at 0, az/el stay at zenith in the sky plot).
+//
+// Returns the recovered 200-sps symbol bit-string in `outBits` and sets
+// `firstSymbolSampleIdx` to the original 1-ms sample index of the first symbol
+// (used to map symbol positions back to absolute tracking samples).
+static bool extractB2aSymbolBits(const std::vector<double>& prompt_I,
+    std::string& outBits, int& firstSymbolSampleIdx)
+{
+    const int SAMPLES_PER_SYMBOL = 5;
+    const size_t N = prompt_I.size();
+    if (N < 24 * SAMPLES_PER_SYMBOL) return false;
+
+    // Pick the sync phase (0..4) whose 5-sample grouping maximises the summed
+    // symbol magnitude (i.e. where the five samples of each symbol agree, so
+    // majority voting is most reliable).
+    double bestScore = -1.0;
+    int bestPhase = 0;
+    for (int phase = 0; phase < SAMPLES_PER_SYMBOL; ++phase) {
+        double score = 0.0;
+        size_t nGroups = 0;
+        for (size_t i = phase; i + SAMPLES_PER_SYMBOL <= N; i += SAMPLES_PER_SYMBOL) {
+            double s = 0.0;
+            for (int k = 0; k < SAMPLES_PER_SYMBOL; ++k) s += prompt_I[i + k];
+            score += std::abs(s);
+            nGroups++;
+        }
+        if (nGroups > 0) score /= static_cast<double>(nGroups);
+        if (score > bestScore) { bestScore = score; bestPhase = phase; }
+    }
+
+    outBits.clear();
+    outBits.reserve(N / SAMPLES_PER_SYMBOL);
+    for (size_t i = static_cast<size_t>(bestPhase); i + SAMPLES_PER_SYMBOL <= N; i += SAMPLES_PER_SYMBOL) {
+        double s = 0.0;
+        for (int k = 0; k < SAMPLES_PER_SYMBOL; ++k) s += prompt_I[i + k];
+        outBits += (s >= 0.0) ? '1' : '0';
+    }
+
+    firstSymbolSampleIdx = bestPhase;
+    return outBits.size() >= 24;
+}
+
+bool EphemerisDecoder::findPreambleAndDecode(const std::vector<double>& prompt_I, Ephemeris& eph, int& subFrameStartIdx, double& detectedTOW)
+{
+    // B-CNAV2 preamble: 24 symbols = 0xE24DE8 (MSB first). The 288-bit message
+    // (PRN/MesType/SOW/data/CRC) follows the 24-symbol preamble.
+    const std::string PREAMBLE_NORM = "111000100100110111101000";
+    const std::string PREAMBLE_INV = "000111011011001000010111";
+
+    std::string bits;
+    int firstSymbolSampleIdx = 0;
+    if (!extractB2aSymbolBits(prompt_I, bits, firstSymbolSampleIdx)) return false;
+    if (bits.size() < 24 + 288) return false;
+
+    // Search across the whole recovered 200-sps symbol stream.
+    for (size_t i = 0; i + 24 + 288 <= bits.size(); ++i) {
+        std::string pre = bits.substr(i, 24);
+        bool isInverted = false;
+        if (pre == PREAMBLE_NORM) isInverted = false;
+        else if (pre == PREAMBLE_INV) isInverted = true;
+        else continue;
+
+        // The 288 message bits are the symbols immediately after the preamble.
+        std::string messageBits = bits.substr(i + 24, 288);
+        if (isInverted) {
+            for (char& b : messageBits) b = (b == '1') ? '0' : '1';
+        }
+
+        if (checkCRC24Q(messageBits)) {
+            if (decodeSubframe(messageBits, eph)) {
+                // Map the symbol start back to absolute 1-ms tracking samples.
+                subFrameStartIdx = firstSymbolSampleIdx + static_cast<int>(i) * 5;
+                detectedTOW = eph.SOW;
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 bool EphemerisDecoder::decodeSubframe(const std::string& navBitsBin, Ephemeris& eph)
@@ -38,24 +143,21 @@ bool EphemerisDecoder::decodeSubframe(const std::string& navBitsBin, Ephemeris& 
 
     const double gpsPi = 3.1415926535898;
 
-    // 1. Decode PRN (Bits 1:6 -> 0:5 0-indexed)
     int PRN = static_cast<int>(bin2dec(navBitsBin.substr(0, 6)));
     if (PRN < 1 || PRN > 63) {
         return false;
     }
     eph.PRN = PRN;
 
-    // 2. Decode Message Type ID (Bits 7:12 -> 6:6)
     int mesType = static_cast<int>(bin2dec(navBitsBin.substr(6, 6)));
 
-    // Decode SOW if not already set (Bits 13:30 -> 12:18)
     if (eph.SOW == 0.0) {
         eph.SOW = static_cast<double>(bin2dec(navBitsBin.substr(12, 18))) * 3.0;
     }
 
     switch (mesType)
     {
-    case 10: // Message Type 10: Ephemeris Part 1
+    case 10: // Ephemeris 1
     {
         if (eph.idValid.size() < 8) eph.idValid.resize(8, 0);
         eph.idValid[0] = 10;
@@ -81,7 +183,7 @@ bool EphemerisDecoder::decodeSubframe(const std::string& navBitsBin, Ephemeris& 
         break;
     }
 
-    case 11: // Message Type 11: Ephemeris Part 2
+    case 11: // Ephemeris 2
     {
         if (eph.idValid.size() < 8) eph.idValid.resize(8, 0);
         eph.idValid[1] = 11;
@@ -105,7 +207,7 @@ bool EphemerisDecoder::decodeSubframe(const std::string& navBitsBin, Ephemeris& 
         break;
     }
 
-    case 30: // Message Type 30: Clock, Ionosphere & Group Delay
+    case 30: // Clock, Ionosphere & Group Delay
     {
         if (eph.idValid.size() < 8) eph.idValid.resize(8, 0);
         eph.idValid[2] = 30;
@@ -127,13 +229,18 @@ bool EphemerisDecoder::decodeSubframe(const std::string& navBitsBin, Ephemeris& 
         eph.alpha7 = static_cast<double>(twosComp2dec(navBitsBin.substr(195, 8))) * std::pow(2.0, -3);
         eph.alpha8 = static_cast<double>(twosComp2dec(navBitsBin.substr(203, 8))) * std::pow(2.0, -3);
         eph.alpha9 = static_cast<double>(twosComp2dec(navBitsBin.substr(211, 8))) * std::pow(2.0, -3);
+
+        // T_GDB1Cp is intentionally NOT decoded here: MATLAB's ephemeris.m never
+        // populates it either, so it stays at its struct default (0.0), which the
+        // faithful satpos() subtracts from the clock correction (matching MATLAB).
+        // The bit position used previously (substr(219, 12)) was made-up and wrong.
         break;
     }
 
-    case 31: // Message Type 31: Clock & Reduced Almanac
-    case 32: // Message Type 32: Clock & EOP
-    case 33: // Message Type 33: Clock & UTC
-    case 34: // Message Type 34: Clock & Differential Corrections
+    case 31:
+    case 32:
+    case 33:
+    case 34:
     {
         int validIdx = mesType - 31 + 3;
         if (eph.idValid.size() < 8) eph.idValid.resize(8, 0);
@@ -158,4 +265,126 @@ bool EphemerisDecoder::decodeSubframe(const std::string& navBitsBin, Ephemeris& 
     }
 
     return true;
+}
+
+bool EphemerisDecoder::findAllEphemerisFrames(const std::vector<double>& prompt_I, Ephemeris& eph, int& firstFrameStartIdx, double& firstTOW)
+{
+    const std::string PREAMBLE_NORM = "111000100100110111101000";
+    const std::string PREAMBLE_INV = "000111011011001000010111";
+
+    // Recover the 200-sps B-CNAV2 symbols from the 1-ms correlator stream.
+    std::string bits;
+    int firstSymbolSampleIdx = 0;
+    if (!extractB2aSymbolBits(prompt_I, bits, firstSymbolSampleIdx)) return false;
+    if (bits.size() < 24 + 288) return false;
+
+    // Required message types for BDS-3 B2a: 10 (Eph 1), 11 (Eph 2), 30-34 (Clock)
+    const std::set<int> requiredTypes = {10, 11, 30, 31, 32, 33, 34};
+    std::set<int> foundTypes;
+    bool gotClockType = false;
+
+    int referenceFrameIdx = -1;
+    double referenceTOW = 0.0;
+    bool foundReference = false;
+
+    // Search across the entire recovered symbol stream. B-CNAV2 rotates the
+    // message types, so the full set (10, 11 and a clock type) is accumulated
+    // over multiple frames. The 24-bit CRC protects against false matches.
+    auto accumulateFrame = [&](const std::string& messageBits, int symbolIdx, bool isInverted) -> bool {
+        std::string msg = messageBits;
+        if (isInverted) {
+            for (char& b : msg) b = (b == '1') ? '0' : '1';
+        }
+        if (!checkCRC24Q(msg)) return false;
+
+        Ephemeris tempEph = eph;
+        if (!decodeSubframe(msg, tempEph)) return false;
+
+        for (int id : tempEph.idValid) {
+            if (requiredTypes.count(id)) {
+                foundTypes.insert(id);
+                if (id >= 30 && id <= 34) gotClockType = true;
+            }
+        }
+
+        if (!foundReference) {
+            referenceFrameIdx = firstSymbolSampleIdx + symbolIdx * 5;
+            referenceTOW = tempEph.SOW;
+            foundReference = true;
+        }
+
+        if (tempEph.idValid[0] == 10) {
+            eph.idValid[0] = 10;
+            eph.WN = tempEph.WN;
+            eph.DIF = tempEph.DIF;
+            eph.SIF = tempEph.SIF;
+            eph.AIF = tempEph.AIF;
+            eph.t_oe = tempEph.t_oe;
+            eph.SatType = tempEph.SatType;
+            eph.deltaA = tempEph.deltaA;
+            eph.ADot = tempEph.ADot;
+            eph.delta_n_0 = tempEph.delta_n_0;
+            eph.delta_n_0Dot = tempEph.delta_n_0Dot;
+            eph.M_0 = tempEph.M_0;
+            eph.e = tempEph.e;
+            eph.omega = tempEph.omega;
+        }
+        if (tempEph.idValid[1] == 11) {
+            eph.idValid[1] = 11;
+            eph.HS = tempEph.HS;
+            eph.DIF = tempEph.DIF;
+            eph.SIF = tempEph.SIF;
+            eph.AIF = tempEph.AIF;
+            eph.omega_0 = tempEph.omega_0;
+            eph.i_0 = tempEph.i_0;
+            eph.omegaDot = tempEph.omegaDot;
+            eph.i_0Dot = tempEph.i_0Dot;
+            eph.C_is = tempEph.C_is;
+            eph.C_ic = tempEph.C_ic;
+            eph.C_rs = tempEph.C_rs;
+            eph.C_rc = tempEph.C_rc;
+            eph.C_us = tempEph.C_us;
+            eph.C_uc = tempEph.C_uc;
+        }
+        for (int k = 2; k < 8; ++k) {
+            if (tempEph.idValid[k] >= 30 && tempEph.idValid[k] <= 34) {
+                eph.idValid[k] = tempEph.idValid[k];
+                eph.t_oc = tempEph.t_oc;
+                eph.a_0 = tempEph.a_0;
+                eph.a_1 = tempEph.a_1;
+                eph.a_2 = tempEph.a_2;
+                eph.IODC_MSB2 = tempEph.IODC_MSB2;
+                eph.IODC_LSB8 = tempEph.IODC_LSB8;
+            }
+        }
+
+        bool has10 = foundTypes.count(10) != 0;
+        bool has11 = foundTypes.count(11) != 0;
+        return has10 && has11 && gotClockType && foundReference;
+    };
+
+    for (size_t i = 0; i + 24 + 288 <= bits.size(); ++i) {
+        std::string pre = bits.substr(i, 24);
+        bool isInverted = false;
+        if (pre == PREAMBLE_NORM) isInverted = false;
+        else if (pre == PREAMBLE_INV) isInverted = true;
+        else continue;
+
+        std::string messageBits = bits.substr(i + 24, 288);
+        if (accumulateFrame(messageBits, static_cast<int>(i), isInverted)) {
+            firstFrameStartIdx = referenceFrameIdx;
+            firstTOW = referenceTOW;
+            return true;
+        }
+    }
+
+    bool has10 = foundTypes.count(10) != 0;
+    bool has11 = foundTypes.count(11) != 0;
+    if (has10 && has11 && gotClockType && foundReference) {
+        firstFrameStartIdx = referenceFrameIdx;
+        firstTOW = referenceTOW;
+        return true;
+    }
+
+    return false;
 }

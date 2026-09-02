@@ -113,13 +113,16 @@
     <ClInclude Include="CheckPhase.h" />
     <ClInclude Include="CheckT.h" />
     <QtMoc Include="DataProbeDialog.h" />
+    <ClInclude Include="CommonBS2.h" />
     <ClInclude Include="Ephemeris.h" />
     <ClInclude Include="EphemerisDecoder.h" />
+    <QtMoc Include="IQScatterPlotWidget.h" />
     <ClInclude Include="PostNavigation.h" />
     <ClInclude Include="PostProcessor.h" />
     <ClInclude Include="PreRun.h" />
     <QtMoc Include="SDRPlotWindow.h" />
     <QtMoc Include="qcustomplot.h" />
+    <QtMoc Include="ProbeDataWindow.h" />
     <ClInclude Include="Satpos.h" />
     <ClInclude Include="Settings.h" />
     <ClInclude Include="SignalReader.h" />
@@ -127,6 +130,7 @@
     <ClInclude Include="Topocent.h" />
     <ClInclude Include="Tracking.h" />
     <QtMoc Include="SettingsWindow.h" />
+    <QtMoc Include="SDRPipelineWorker.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Acquisition.cpp" />
@@ -134,14 +138,24 @@
     <ClCompile Include="CalcCNoPLD.cpp" />
     <ClCompile Include="CheckPhase.cpp" />
     <ClCompile Include="CheckT.cpp" />
+    <ClCompile Include="CommonBS2.cpp" />
     <ClCompile Include="DataProbeDialog.cpp" />
     <ClCompile Include="EphemerisDecoder.cpp" />
+    <ClCompile Include="IQScatterPlotWidget.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="PostNavigation.cpp" />
+    <ClCompile Include="PostProcessor.cpp" />
+    <ClCompile Include="ProbeDataWindowcpp.cpp" />
     <ClCompile Include="qcustomplot.cpp" />
     <ClCompile Include="Satpos.cpp" />
     <ClCompile Include="SDRPlotWindow.cpp" />
     <ClCompile Include="SettingsWindow.cpp">
+      <DynamicSource Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">input</DynamicSource>
+      <QtMocFileName Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">%(Filename).moc</QtMocFileName>
+      <DynamicSource Condition="'$(Configuration)|$(Platform)'=='Release|x64'">input</DynamicSource>
+      <QtMocFileName Condition="'$(Configuration)|$(Platform)'=='Release|x64'">%(Filename).moc</QtMocFileName>
+    </ClCompile>
+    <ClCompile Include="SDRPipelineWorker.cpp">
       <DynamicSource Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">input</DynamicSource>
       <QtMocFileName Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">%(Filename).moc</QtMocFileName>
       <DynamicSource Condition="'$(Configuration)|$(Platform)'=='Release|x64'">input</DynamicSource>

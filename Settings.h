@@ -1,9 +1,16 @@
 #pragma once
 
 #include <QString>
+#include <memory>
+#include <atomic>
 
 struct Settings
 {
+    // Optional cooperative-cancellation flag set by the GUI (e.g. on a Cancel
+    // button or window close). The pipeline polls it between long-running
+    // stages/channels and stops promptly. Null when unused.
+    std::shared_ptr<std::atomic<bool>> cancelRequested;
+
     // Speed of Light Constant
     double c = 299792458.0;
 
@@ -20,6 +27,14 @@ struct Settings
     // Acquisition Parameters
     bool skipAcquisition = false;
     QString acqSatelliteList = "19 20";
+
+    // Satellite Allocation Configuration:
+    // 0: Auto (All above threshold), 1: Specific PRN List (e.g. "19 20 30"),
+    // 2: PRN Range (e.g. "10-30" or "19:25"), 3: Top-N Strongest (e.g. "4")
+    int satSelectMode = 0;
+    QString targetSatList = "19 20 30 37";
+    int maxChannels = 12;
+
     double acqSearchBand = 5000.0;
     double acqThreshold = 1.5;
     double acqStep = 400.0;
